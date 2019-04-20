@@ -1,0 +1,450 @@
+﻿ORACLE基本操作:  dbca  netca  netmgr
+1、登录：sqlplus / as sysdba   关闭数据库：shutdown immediate;    开启数据库：startup;
+
+2、查看用户状态：select username,account_status from dba_users;  
+   查询数据库用户被锁时间（解锁前查）：select username,lock_date from dba_users ;
+   修改为30次: 查询默认select * from dba_profiles;  alter profile default limit FAILED_LOGIN_ATTEMPTS 30;
+   sys账户LOCKED和EXPIRED解锁：alter user sys account unlock;   alter user sys identified by sys;
+   重新给sys账户密码：alter user sys identified by 123456;
+   SQL>select * from v$sql   (#查看最近所作的操作)
+
+   Oracle查看并修改最大连接数
+   　1. 查看processes和sessions参数【sessions=(1.1*process+5)】
+　　  SQL> show parameter processes
+　    SQL> show parameter sessions
+　   2. 修改processes和sessions值
+      SQL> alter system set processes=300 scope=spfile;
+　    SQL> alter system set sessions=335 scope=spfile;
+　　 3. 修改processes和sessions值必须重启oracle服务器才能生效
+　查询数据库当前进程的连接数：  select count(*) from v$process;
+  查看数据库当前会话的连接数：  select count(*) from v$session;
+  查看数据库的并发连接数：      select count(*) from v$session where status='ACTIVE';
+  查看当前数据库建立的会话情况：select sid,serial#,username,program,machine,status from v$session;
+  查询数据库允许的最大连接数：  select value from v$parameter where name = 'processes';或者：show parameter processes;
+
+
+
+3、查看本地oracle的服务名：select global_name from global_name;
+                 切换实例  export ORACLE_SID=devdb
+
+4、查询所有的表空间：Select tablespace_name from sys.dba_tablespaces; 
+                     SELECT tablespace_name,block_size,extent_management,status,contents FROM dba_tablespaces ;  
+                     SELECT tablespace_name,file_name,bytes,autoextensible,online_status FROM dba_data_files ;  
+   查看各表空间分配情况：select tablespace_name, sum(bytes) /1024/1024 from dba_data_files group by tablespace_name;
+   查看各表空间空闲情况：select tablespace_name, sum(bytes) /1024/1024 from dba_free_space group by tablespace_name; 
+   更改数据users表大小(2G)：alter database datafile '/home/oracle/app/oradata/orcl/users01.dbf' resize 2048m;
+   创建lib表空间：Create tablespace lib datafile 'E:\oracledbf\lib.dbf' size 500M autoextend on maxsize unlimited; 
+   删除lib表空间及文件：drop tablespace lib including contents and datafiles;
+   扩展：查询tab表字段 select * from tab; 查询tab表中工资在1000-2000 select ename,sal from tab where sal between 1000 and 2000;
+
+数据文件自动扩展的弊端
+1）如果任其扩大，在数据量不断变大的过程中会导致某个数据文件异常的大
+2）没有人管理的数据库是非常危险的
+----查询表空间的目前使用大小
+select tablespace_name,sum(bytes/1024/1024) mb from dba_segments where tablespace_name='USER1' group by tablespace_name;
+---查询aaa表空间的分配大小
+select tablespace_name,bytes/1024/1024 mb from dba_data_files;
+---查询aaa表空间是否自动扩展
+select tablespace_name,autoextensible from dba_data_files;
+---查询aaa表空间最大扩展大小（注：当表空间开启了自动扩展特性，表空间会一直扩展到操作系统支持的最大大小）
+select tablespace_name,maxblocks*8 from dba_data_files; 
+开启表空间自动扩展功能
+alter database datafile '/u01/app/oracle/oradata/sktest/skuser.dbf' autoextend on;
+关闭表空间自动扩展功能
+alter database datafile '/u01/app/oracle/oradata/sktest/skuser.dbf' autoextend off;
+查看表空间和物理文件路径
+select tablespace_name, file_id, file_name from dba_data_files order by tablespace_name;
+给新增的数据文件设置自动增长和最大文件值：
+alter tablespace ECP add datafile '/home/oracle/app/oradata/orcl/ECP01.dbf' size 30G autoextend on next 100M maxsize unlimited;
+
+5、查询所有的用户：Select username from sys.dba_users;  
+   创建lib用户：create user lib identified by lib default tablespace lib;   
+   删除lib用户：drop user lib cascade; 
+
+6、lib用户授权：grant dba to lib; 撤销用户权限：Revoke connect, resource from user50;
+
+7、查看oracle当前执行的SQL语句：
+select a.program, b.spid, c.sql_text,c.SQL_ID
+  from v$session a, v$process b, v$sqlarea c
+ where a.paddr = b.addr
+   and a.sql_hash_value = c.hash_value
+   and a.username is not null;
+
+8、数据库exp导出（10g以前）：exp tt/tt@orcl file=/home/tt.dmp owner=(tt);
+   在目标库上创建表空间及lib用户，然后exp导入：
+                       CREATE USER TT IDENTIFIED BY tt ACCOUNT UNLOCK DEFAULT TABLESPACE TT;
+                       GRANT CONNECT,create session,resource,dba, create any view TO TT;
+                       imp tt/tt@orcl full=y file=/home/tt.dmp ignore=y;
+   导出expdp工具使用方法：  create or replace directory dump as '/home/oracle/dump';
+                            grant read,write on directory dump to TT;
+                            select * from dba_directories;   
+                            expdp tt/tt@orcl directory=dump dumpfile=tt.dmp logfile=tt.log schemas=tt full=y;             
+   导入impdp工具使用方法：  create directory dump as '/home/oracle/dump'; 
+                            grant read,write on directory dump to TT;
+                            select * from dba_directories;
+                            impdp tt/tt@orcl directory=dump dumpfile=tt.dmp logfile=tt.log schemas=tt full=y;
+
+9、删除脏页：free -m/free -h  && echo 3 > /proc/sys/vm/drop_caches 
+   查询连接：lsof -i :1521
+
+10、(sysdba)用户查询归档日志空间：show parameter recovery
+   (sysdba)用户修改归档日志空间：alter system set db_recovery_file_dest_size=20G scope=both;
+   查看日志组空间大小：select GROUP#,members,BYTES/1024/1024 size_M,STATUS,ARCHIVED from v$log;
+   查看日志组路径：select MEMBER from v$logfile;
+   设定数据库启动归档日志: alter database archivelog;   关闭：alter database noarchivelog;       
+
+日志空间文件不能直接扩大，网上的一般方法就是新建临时日志组，切换到临时日志组后，删掉，再添加日志组成员。在中间过程中查看日志状态active转inactive，用alter system switch logfile切换日志组。
+1.增大日志文件大小，我是通过新创建大的日志组然后进行切换实现的，在原有的日志组上创建新的日志组
+alter database add logfile group 11 ('/home/oracle/app/oradata/orcl/redo11.log') size 300m;
+alter database add logfile group 12 ('/home/oracle/app/oradata/orcl/redo12.log') size 300m;
+alter database add logfile group 13 ('/home/oracle/app/oradata/orcl/redo13.log') size 300m;
+alter database add logfile group 14 ('/home/oracle/app/oradata/orcl/redo14.log') size 300m;
+alter database add logfile group 15 ('/home/oracle/app/oradata/orcl/redo15.log') size 300m;
+2.切换日志到新建的日志组
+alter system switch logfile;
+alter system checkpoint;
+3.查看日志状态
+select * from v$log;
+注意：只有status为inactive并且archived 为YES时方可删除日志组(这个的意思为该重做日志己经归档,否则会报ora-01624)
+4.删除日志组成员
+alter database drop logfile member '/home/oracle/app/oradata/orcl/redo1.log';
+alter database drop logfile member '/home/oracle/app/oradata/orcl/redo2.log';
+alter database drop logfile member '/home/oracle/app/oradata/orcl/redo3.log';
+5.删除日志组
+alter database drop logfile group 1;
+alter database drop logfile group 2;
+alter database drop logfile group 3;
+下面介绍关于日志一些原则：
+原则：删除前必须遵守如下原则，每个实例必须至少有两个日志组；当一个组处于ACTIVE或者CURRENT的状态时不可删除；删除日志组的操作只对数据库进行更改，操作系统的文件尚未删除；当删除时适用DROP LOGFILE GROUP N语句时，此时GROUP N内的所有成员都将被删除。
+删除日志成员的原则：当你删除一个是该组中最后一个成员的时候，你不能删除此成员；当组的转台处于current的状态时，不能删除组成员；在归档模式下，必须得归档之后才能删除；删除日志组成员的操作只对数据库进行更改，操作系统的文件尚未删除
+6.增加日志成员（最好把成员放到不同的磁盘上做到多功，避免一个组的日志文件全部损坏数据库宕机）
+alter database add logfile member '/home/oracle/app/oradata/orcl/redo11.log' to group 11;
+alter database add logfile member '/home/oracle/app/oradata/orcl/redo12.log' to group 12;
+alter database add logfile member '/home/oracle/app/oradata/orcl/redo13.log' to group 13;
+alter database add logfile member '/home/oracle/app/oradata/orcl/redo14.log' to group 14;
+alter database add logfile member '/home/oracle/app/oradata/orcl/redo15.log' to group 15;
+7.操作系统级别删除数据文件（我的系统是redhat6)
+rm -rf /home/oracle/app/oradata/orcl/redo01.log
+rm -rf /home/oracle/app/oradata/orcl/redo02.log
+rm -rf /home/oracle/app/oradata/orcl/redo03.log
+  
+
+建数据库：dbca
+建表和用户：
+查询：表     select * from dba_data_files;
+             select name,total_mb,free_mb from v$asm_diskgroup;
+      目录   select * from dba_directories;
+      实例   select name from v$database;
+创建表：     create tablespace lib datafile '/home/oracle/app/oradata/orcl/lib01.dbf' size 1G autoextend on next 100M maxsize unlimited;
+创建用户：     create user lib identified by qwe123 default tablespace lib;
+给出权限：     grant connect,create session,resource,dba, create any view to lib;
+密码过期时间： ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
+创建链接目录： create or replace directory dump as '/home/oracle/dump';
+               grant read,write on directory dump to lib;
+
+删除用户：drop user lib cascade;
+
+导出：
+select * from dba_directories;
+grant read,write on directory dump to lib;
+11g导出12c授权：grant exp_full_database to lib;
+expdp lib/qwe123@sandbox directory=dump dumpfile=lib.dmp logfile=lib.log schemas=lib;
+11g导出12c需要加版本号：version=12
+
+导入：
+sqlplus sys/qwe123@192.168.20.40:1521/sandbox as sysdba;
+select * from dba_directories;
+grant read,write on directory dump_dir to lib;
+impdp lib/qwe123@192.168.20.40:1521/sandbox directory=dump dumpfile=LIB.DMP logfile=lib.log schemas=lib;
+注意：本机就不用加@以后的内容。
+查看本地oracle的服务名：select global_name from global_name;
+查看字符集：select * from V$NLS_PARAMETERS;
+用户映射impdp zjjrtt/zjjrttoracle@zjjr directory=dump dumpfile=tt_20171128.dmp remap_schema=tt:zjjrtt logfile=tt3.log;
+
+
+ERP导入:impdp erp_dev2/erp_devoracle@192.168.30.63:1521/orcl directory=dump dumpfile=erp_dev20180108.dmp remap_schema=erp_dev:erp_dev2 logfile=today.log 
+
+select username,default_tablespace from dba_users;
+drop user erp_dev2 cascade;
+select username,sid,serial#,status from v$session where username='ERP_DEV2';
+alter system kill session '135,69';
+alter tablespace erp rename to erp_dev;
+create user erp_dev2 identified by erp_devoracle default tablespace erp_dev;
+select username,default_tablespace from dba_users where username='ERP_DEV2';
+grant read,write on directory dump to erp_dev2;
+grant connect,dba,resource,create session,create any view to erp_dev2;
+
+
+12C改CDB系统用户密码：
+alter session set container=ORCLPDB;
+show con_name;
+conn / as sysdba;
+show user;
+alter user system identified by oracle;
+
+升级：
+http://docs.oracle.com/database/121/UPGRD/preup.htm#UPGRD12359
+升级：oracle11gR2 11.2.0.1===>oracle11gR2 11.2.0.3===>oracle12c 12.1.0.1
+升级博客：http://blog.itpub.net/12679300/viewspace-1840975/
+          http://www.cnblogs.com/andy6/p/6580195.html
+注意：1、低版本导出时需要指定版本号 version=12
+      2、内核参数调大 kernel.shmmax = 1177866240
+      3、内存空间调大 /etc/fstab    tmpfs /dev/shm  tmpfs  defaults,size=7G  0 0
+      4、sqlplus / as sysdba;   startup upgrade;
+         @/home/oracle/app/product/11.2.0.3/dbhome_1/rdbms/admin/catalog.sql;
+         @/home/oracle/app/product/11.2.0.3/dbhome_1/rdbms/admin/catproc.sql;
+         @/home/oracle/app/product/11.2.0.3/dbhome_1/rdbms/admin/catupgrd.sql;
+         @/home/oracle/app/product/11.2.0.3/dbhome_1/rdbms/admin/utluiobj.sql;
+         @/home/oracle/app/product/11.2.0.3/dbhome_1/rdbms/admin/catuppst.sql;
+         @/home/oracle/app/product/11.2.0.3/dbhome_1/rdbms/admin/utlu112i.sql;
+         catmetx.sql 
+         utlrp.sql
+
+         shutdown immediate;    startup;
+      5、授权lib用户dba：grant dba to lib;
+
+oracle12c操作：1）连接到CDB数据库： sqlplus / as sysdba 或者 sqlplus sys/password   as sysdba
+               2）查看数据库是否为CDB： select name, decode(cdb, 'YES', 'Multitenant Option enabled', 'Regular 12c Database: ') "Multitenant Option" , open_mode, con_id from v$database;
+               3）查看当前容器（Container）： show con_name 或者 select sys_context('userenv', 'con_name') "Container DB" from dual;
+                  查看所有容器（Container）： show pdbs;
+               4）查看CDB容器中的PDBS信息： select con_id, dbid, guid, name , open_mode from v$pdbs;
+               5）启动PDB数据库：alter session set container=PDBEPPS; startup 或者 alter pluggable database PDBEPPS open; 
+               6）关闭PDB数据库：alter pluggable database PDBEPPS close;
+               7）在容器间切换：alter session set container=PDBEPPS; show con_name; 或者 alter session set container=CDB$ROOT;  show con_name;
+
+Linux下配置oracle12c创建pdb过程:
+一. 创建PDB：
+              CREATE PLUGGABLE DATABASE sandbox ADMIN USER sandbox IDENTIFIED BY sandbox ROLES = (dba)  DEFAULT TABLESPACE LIB datafile '/home/oracle/app/oradata/orcl/sandbox/LIB01.dbf' size 1G autoextend on next 100M maxsize unlimited FILE_NAME_CONVERT = ('/home/oracle/app/oradata/orcl/pdbseed/','/home/oracle/app/oradata/orcl/sandbox/') STORAGE (MAXSIZE 2G) PATH_PREFIX = '/home/oracle/app/oradata/orcl/sandbox/';
+    查看PDB： show pdbs;
+    开启PDB:  alter pluggable database sandbox open; 
+    切换PDB:  alter session set container=sandbox;   
+二. 创建表空间：上述操作过就不用进行，针对上述没操作过，已经存在的pdb
+              create tablespace LIB datafile '/home/oracle/app/oradata/orcl/sandbox/LIB01.dbf' size 1G autoextend on next 100M maxsize unlimited;   
+三. 用户授权:   
+    用户：    create user lib identified by qwe123 default tablespace lib;
+    授权:     grant connect,create session,resource,dba, create any view to lib; 
+    提交:     commit; 
+    密码：    ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
+    目录：    select * from dba_directories;  
+              create or replace directory dump as '/home/oracle/dump';
+              grant read,write on directory dump to lib;                    
+四. 配置监听文件: 
+    1、tnsnames.ora文件
+SANDBOX =
+  (DESCRIPTION =
+    (ADDRESS_LIST =
+      (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
+    )
+    (CONNECT_DATA =
+      (SERVICE_NAME = sandbox)
+    )
+  )
+    2、Listener.ora文件
+(SID_DESC=
+         (GLOBAL_DBNAME=sandbox)
+         (SID_NAME=sandbox)
+       )
+    3、sqlnet.ora文件
+查看是否有这个文件,如果没有手动加上这个文件,并添加SQLNET.ALLOWED_LOGON_VERSION=8代码行。
+五. 测试链接:
+    测试命令端是否能链接成功: conn sandbox/sandbox@SANDBOX;
+    测试PL/SQL developer是否能够链接成功: netmgr
+    测试jdbc是否能够链接成功: jdbc:oracle:thin:@//10.0.0.133:1521/sandbox
+六. 数据备份还原:
+1、dmp文件夹授权: mkdir -pv /home/oracle/dump && chmod -R 774 /home/oracle/dump && chown -R oracle:oinstall /home/oracle/dump
+2、pdb用户登录PDB: conn sandbox/sandbox@SANDBOX
+3、查询并创建目录: select * from dba_directories;  create or replace directory dump as '/home/oracle/dump'
+4、Sys用户登录PDB: conn sys/P@ssw0rd@SANDBOX
+5、为用户授权权限: grant read,write on directory dump to sandbox
+6、执行impdp命令
+   对于源库和目标库用户及表空间名称相同的执行如下语句:
+impdp sandbox/sandbox@PDBCREDITPLATFORMDIRECTORY=dump DUMPFILE=lib.dmp full=y table_exists_action=replace
+  对于源库和目标库用户及表空间名称不相同的执行如下语句:
+impdp sandbox/sandbox@PDBCREDITPLATFORMDIRECTORY=dump DUMPFILE=lib.dmp REMAP_SCHEMA=CREDITPLATFORM_NEW:CREDITPLATFORM remap_tablespace=TS_CREDITPLATFORM_NEW:TS_CREDITPLATFORM full=y  
+
+
+linux中设置定期逻辑备份oracle数据库
+先写一个导出的脚本文件 oracle-test-backup.sh ：
+保证目录存在：mkdir -pv /home/oracle/dump && chmod -R 774 /home/oracle/dump && chown -R oracle:oinstall /home/oracle/dump
+    create or replace directory dump as '/home/oracle/dump';
+    grant read,write on directory dump to TEST; 
+
+    #!/bin/bash
+    export ORACLE_BASE=/home/oracle/app
+    export ORACLE_HOME=$ORACLE_BASE/product/12c
+    export ORACLE_SID=orcl
+    export PATH=.:${PATH}:$HOME/bin:$ORACLE_HOME/bin:$ORACLE_HOME/lib:$ORACLE_HOME/lib64
+    export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
+    time1=$(date +'%Y%m%d')
+    before=$(date -d '2 day ago' +%Y%m%d)
+    export DMP=/home/oracle/dump/test_$before.dmp
+    export LOG=/home/oracle/dump/test_$before.log
+    expdp TEST/123@TEST directory=dump dumpfile=test_$time1.dmp logfile=test_$time1.log schemas=test;
+    if [ -f $DMP];then
+        rm -rf $DMP
+        rm -rf $LOG
+        exit 1
+    fi
+要用chmod命令把这个sh标记为可执行：
+    chmod +x oracle-test-backup.sh 
+    chown oracle:oinstall oracle-test-backup.sh 
+用oracle用户，输入crontab -e命令，编辑oracle用户的任务计划：
+    echo "30 01 * * * oracle /home/oracle/dump/oracle-test-backup.sh >/dev/null 2>&1" >> /etc/crontab
+
+    [oracle@localhost dump]$ crontab -e
+    30 01 * * * /home/oracle/dump/oracle-test-backup.sh >/dev/null 2>&1
+这样就添加了一个计划，在每天凌晨01点30分运行/home/oracle/dump/oracle-test-backup.sh。
+另外，每天运行完之后，会收到mail通知，可以在mail里看出到底有没有正确运行。
+
+联机备份与恢复(rman)-----数据库要开启归档日志模式(alter database archivelog)
+1.创建恢复目录所用的表空间
+  create tablespace LIB datafile '/home/oracle/app/oradata/orcl/sandbox/LIB01.dbf' size 1G autoextend on next 100M maxsize unlimited;   
+2.创建rman用户并授权(特别是recovery_catalog_owner权限)
+  create user lib identified by qwe123 default tablespace lib;
+  grant connect,recovery_catalog_owner,create session,resource,dba, create any view to lib; 
+  commit;
+3.创建恢复目录
+rman catalog lib/qwe123 target orc
+rman> create catalog tablespace rman_ts;
+4.注册目标数据库
+rman> register database;
+5.使用rman程序进行备份
+rman> run {
+2> allocate channel ch1 type disk;
+3> backup database;
+4> release channel ch1;
+5> }
+  备份归档日志文件
+rman> run {
+2> allocate channel ch1 type disk;
+3> backup archivelog all;
+4> release channel ch1;
+5> }
+查看备份：rman> list backup;
+6.使用rman程序进行恢复
+恢复归档日志
+rman> run {
+2> allocate channel ch1 type disk;
+3> restore archivelog all;
+4> release channel ch1;
+5> }
+
+#!/bin/bash
+export PATH
+export ORACLE_BASE=/home/oracle/app
+export ORACLE_HOME=$ORACLE_BASE/product/12c
+export ORACLE_SID=orcl
+export ORACLE_TERM=xterm
+export DATE=$(date +%Y%m%d)
+export TIME=$(date -d '4 day ago' +%Y%m%d)
+source /etc/profile;
+source /home/oracle/.bash_profile
+mkdir -p /home/oracle/dump/$DATE
+
+rman target / log=/home/oracle/dump/$DATE/backup_$DATE.log << EOF
+delete noprompt obsolete;
+DELETE ARCHIVELOG ALL COMPLETED BEFORE 'SYSDATE-5';
+run
+{
+allocate channel ch1 type disk;
+backup full database  format '/home/oracle/dump/$DATE/bk_%s_%p_%t';
+release channel ch1;
+allocate channel ch1 type disk;
+sql 'alter system archive log current';
+backup archivelog all format '/home/oracle/dump/$DATE/arc_%s_%p_%t' delete all input;
+release channel ch1;
+allocate channel ch1 type disk;
+backup format '/home/oracle/dump/$DATE/cl_%s_%p_%t' current controlfile;
+backup spfile format '/home/oracle/dump/$DATE/sp_%s_%p_%t';
+release channel ch1;
+}
+EOF
+# delete directory
+export direcory=/home/oracle/dump/$TIME
+if [ -d $direcory ]
+  then
+   rm -rf /home/oracle/dump/$TIME
+   exit 1
+fi
+
+
+12C CDB模式下RMAN备份与恢复
+1.1.  RMAN连接数据库
+[oracle@oracle ~]$ rman target '"/ as sysdba"' 
+1.2.  只备份CDB
+只备份CDB数据库需要具有SYSDBA或SYSBACKUP权限用户连接到CDB的root环境下，执行backup database root命令即可完成对CDB的备份，方法如下：
+RMAN> backup database root;
+1.3.  备份整个CDB及其下面的所有PDB
+备份整个CDB数据库及其下面的所有PDB类似于非CDB数据库方法相同，使用具有SYSDBA或SYSBACKUP权限用户连接到CDB的root环境下面，然后执行backup database命令即可完成整个CDB的备份，方法如下：
+RMAN> backup database;
+1.4.  备份单个和多个PDB
+在CDB中允许备份一个或多少PDB数据库，备份一个PDB数据库可以通过以下两个方式备份：
+在CDB根（root）使用BACKUP PLUGGABLE DATABASE命令备份一个或多个PDB数据库。
+[oracle@oracle ~]$ rman target /  
+RMAN> backup pluggable database orclpdb;
+在PDB中使用BACKUP DATABASE备份当前连接的PDB数据库，前提条件是需要配置好TNSNAMES.ORA文件。
+[oracle@oracle ~]$ rman target sys/Root123456@orclpdb
+RMAN> backup database;
+1.5.  整体数据库恢复（CDB和所有PDB）
+12C数据库加强了RMAN恢复的功能，恢复的方式基本同以前的模式一样，如果是在一个全新的异地进行恢复，同样的也是先手工创建与原库相同的CDB和PDB实例，然后关闭实例，删除所有数据文件，通过RMAN命令或者拷贝原始库的控制文件到新库上，启动CDB数据库到mount状态，如下
+[oracle@oracle ~]$ rman target /
+RMAN> startup mount;
+RMAN> restore database;
+RMAN> recover database;
+RMAN> alter database open resetlogs;
+1.6.  单个PDB数据库恢复
+恢复单个PDB的前提是CDB已经能够正常启动，在CDB启动的情况下在RMAN中采用restore pluggable database pdb名称指定单个PDB数据库进行恢复，如下
+RMAN> restore pluggable database orclpdb;
+RMAN> recover pluggable database orclpdb;
+最后，在以restlogs方式，打开pdb实例，如下
+[oracle@oracle ~]$ sqlplus / as sysdba
+SQL> show pdbs;
+SQL> alter pluggable database ORCLPDB resetlogs;
+SQL> show pdbs;
+1.7.  恢复PDB数据文件
+数据库在open的时候，会对当前的数据的所有数据文件进行检查。
+对于system,sysaux和undo表空间的数据文件，如果有问题，数据库无法open。如果是PDB中某个普通的数据文件出现丢失，我们可以先用offline方式跳过，然后再打数据库,稍后再对数据文件做恢复:
+SQL> startup;
+Database mounted.
+ORA-01157: cannot identify/lock data file 6- see DBWR trace file
+ORA-01110: data file 6:'/u01/app/oracle/oradata/c12/users01.dbf'
+SQL> alter database datafile 6 offline;
+SQL> alter database open;
+使用rman
+RMAN> restore datafile 6;
+RMAN> recover datafile 6;
+SQL> alter database datafile 6 online;
+再看看pdb的数据文件.摸拟pdb数据文件删除
+[oracle@o12c pdb2]$ mv pdb2_users01.dbfpdb2_users01.dbfold
+启动数据库实例
+SQL> startup;
+由此我们可以得出一个结论，当cdb在打开的时候，数据库不会检查pdb中的数据文件。
+SQL> alter pluggable database pdb2 open;
+ORA-01157: cannot identify/lock data file 13- see DBWR trace file
+ORA-01110: data file 13:'/u01/app/oracle/oradata/c12/pdb2/pdb2_users01.dbf'
+只有在打开pluggabledatabase时，会效验PDB数据库的数据文件
+SQL> alter session set container=pdb2;
+SQL> alter pluggable database datafile 13 offline;
+数据文件file#(文件号)是唯一的，但我们在CDB中操作时找不到该文件，必须要进入PDB模式，如果在CDB试图去offline一个数据文件时会报错：
+SQL> show con_name
+SQL> alter database datafile 10 offline;
+ORA-01516: 不存在的日志文件, 数据文件或临时文件 "10"*
+但是在rman中可以直接使用datafile号进行恢复
+[oracle@localhost admin]$ rman target /
+RMAN> restore datafile 10;
+RMAN> recover datafile 10;
+
+
+
+Oracle 操作和输出记录 保存
+执行命令spool，指定导出的文件名，例如spool output.txt。
+说明：执行该操作后，会在OMU服务器的根目录“/home/oracle”中生成文件“output.txt”
+设置导出文件的输出格式，提高文件的可读性。设置如下：
+SQL> set trimspool on
+SQL> set linesize 120
+SQL> set pagesize 2000
+SQL> set newpage 1
+SQL> set heading on
+SQL> set term off
+执行命令spool off，关闭数据导出。
+
