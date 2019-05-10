@@ -245,5 +245,3 @@ reboot
 
 # cat /home/oracle/app/diag/rdbms/orcl/orcl/trace/alert_orcl.log 
 
-
-
